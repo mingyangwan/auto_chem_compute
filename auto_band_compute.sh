@@ -1,11 +1,17 @@
 #!/bin/bash
 set -euo pipefail  #确保脚本在出错时能及时退出
-# 加载环境变量
-load_env() {
-    source /home/ubuntu/intel/impi/2019.7.217/intel64/bin/mpivars.sh
-    source /home/ubuntu/intel/bin/compilervars.sh intel64
-    source /home/ubuntu/intel/bin/ifortvars.sh intel64
-}
+
+#用法
+#将所有cif文件放在当前文件夹下，使用 bash auto_band_compute.sh即可
+#脚本会自动处理cif文件，生成POSCAR文件，然后进行结构优化，自洽场迭代，DOS计算，BAND计算，CUBE计算
+#其他功能请在函数中添加，并在process_file函数中调用
+
+# 加载环境变量 加载环境变量很重要，不然mpi以及运行库环境容易错误
+# load_env() {
+#     source /home/ubuntu/intel/impi/2019.7.217/intel64/bin/mpivars.sh
+#     source /home/ubuntu/intel/bin/compilervars.sh intel64
+#     source /home/ubuntu/intel/bin/ifortvars.sh intel64
+# }
 # 日志功能
 log() {
     local message=$1
@@ -64,7 +70,7 @@ process_file() {
 run_scf() {
     log "执行SCF计算"
     cd ../scf || exit
-    cp ../opt/CONTCAR KPOINTS POTCAR ./
+    cp ../opt/{CONTCAR,KPOINTS,POTCAR} ./
     mv CONTCAR POSCAR
     cp /home/ubuntu/app/template/band/scf0 ./INCAR
     mpirun -np 50 vasp_std > 1.log
@@ -76,7 +82,7 @@ run_scf() {
 run_dos() {
     log "执行DOS计算"
     cd ../dos || exit
-    cp ../scf/POSCAR KPOINTS POTCAR WAVECAR CHGCAR ./
+    cp ../scf/{POSCAR,KPOINTS,POTCAR,WAVECAR,CHGCAR} ./
     cp /home/ubuntu/app/template/band/dos ./INCAR
     mpirun -np 50 vasp_std > 1.log
     wait
@@ -88,7 +94,7 @@ run_dos() {
 run_band() {
     log "执行BAND计算"
     cd ../band || exit
-    cp ../scf/POSCAR POTCAR WAVECAR CHGCAR ./
+    cp ../scf/{POSCAR,POTCAR,WAVECAR,CHGCAR} ./
     (echo 3; echo 303) | vaspkit > out3.txt
     rm INCAR
     cp /home/ubuntu/app/template/band/band0 ./INCAR
@@ -110,21 +116,26 @@ run_band() {
     #amset plot band stats vasprun.xml
 }
 
-# CUBE计算
+# CUBE计算，前沿轨道
 run_cube() {
     log "执行CUBE计算"
     cd ../cube || exit
     cp ../scf/POSCAR ./
     echo -e "cp2k\nfe.inp\n-3\n6\n2\n2\n0\nq" | Multiwfn ./POSCAR >/dev/null
+    source ~/.bashrc # 重新加载环境变量，默认是gcc编译器，vasp编译用icc
     mpirun -np 50 -mca btl ^openib cp2k.popt fe.inp 1> cp2k.out 2> cp2k.err
     wait
     log "CUBE计算完成"
 }
 
 main() {
-    load_env
+    # load_env # 加载环墨变量，但是会出现问题，所以直接在函数中加载
+    source /home/ubuntu/intel/impi/2019.7.217/intel64/bin/mpivars.sh
+    source /home/ubuntu/intel/bin/compilervars.sh intel64
+    source /home/ubuntu/intel/bin/ifortvars.sh intel64
     for file in *.cif; do
         process_file "$file"
     done
 }
 main "$@"
+
